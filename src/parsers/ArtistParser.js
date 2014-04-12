@@ -1,11 +1,60 @@
 var cheerio = require("cheerio"),
+  superAgent = require("superagent"),
   CONSTANTS = require("../constants/Constants"),
-  RapSong = require("../model/Song"),
-  RapArtist = require("../model/Artist"),
-  StringUtils = require("../util/StringUtils");
+  Song = require("../model/Song"),
+  Artist = require("../model/Artist"),
+  StringUtils = require("../util/StringUtils"),
+  querystring = require('querystring');
 
 
-function parseArtistHTML(html, type) {
+function fetchSongs(type, artist, artistLink, artistId, artistPage, callback) {
+  var urls = CONSTANTS.Type2URLs[type];
+  function fetch(page) {
+    var params = {
+      for_artist_page:artistPage,
+      id:artistId,
+      lyrics_seo:false,
+      page:page,
+      pagination:true,
+      "search[by_artist]":artistPage,
+      "search[unexplained_songs_last][]":"title",
+      "search[unexplained_songs_last][]":"id"
+    };
+
+    var url = "http://rapgenius.com/songs?"+querystring.stringify(params)
+    superAgent.get(url)
+      .set("Accept", "text/html")
+      .end(function(res){
+        if(res.ok){
+          var $ = cheerio.load(res.text);
+          var songs = $(".song_list li");
+          songs.each(function (index, song) {
+            var songLinkElem = $(song).find(".song_link");
+            songLinkElem.each(function (i, s) {
+              var songLink = urls.base_url + $(s).attr("href");
+              var songName = StringUtils.removeWhiteSpacesAndNewLines($(s).children(".title_with_artists").text());
+              var rapSong = new Song(songName, artistLink, songLink);
+              artist.addSong(rapSong);
+            });
+          });
+          if(page < 2 && songs.length > 0) {
+            fetch(page + 1)
+          } else {
+            callback(null, artist);
+          }
+        } else{
+          console.log("An error occurred while trying to access lyrics[url=%s, status=%s]", url, res.status);
+          return callback(new Error("Unable to access the page for lyrics [url=" + link + "]"));
+        }
+      });
+  }
+
+  fetch(1);
+
+}
+
+
+function parseArtistHTML(html, type, callback) {
   try {
     var urls = CONSTANTS.Type2URLs[type];
     var $ = cheerio.load(html);
@@ -30,28 +79,12 @@ function parseArtistHTML(html, type) {
     var artistLink = urls.artist_url + artistName.replace(" ", "-");
     var rapArtist = new Artist(artistName, artistLink);
 
-    var songs = $(".song_list", "#main");
-    songs.each(function (index, song) {
-      var songLinkElem = $(song).find(".song_link");
-      songLinkElem.each(function (i, s) {
-        var songLink = urls.base_url + $(s).attr("href");
-        var songName = StringUtils.removeWhiteSpacesAndNewLines($(s).children(".title_with_artists").text());
-        var rapSong = new Song(songName, artistLink, songLink);
-
-        if (index === 0) {
-          //This element represents the favourite songs of the artist
-          rapArtist.addPopularSong(rapSong);
-        }
-        rapArtist.addSong(rapSong);
-      });
-
-    });
-
-    return rapArtist;
-
+    var artistId = artistName.replace(" ", "-")
+    var artistPage = $(".edit_artist").attr("action").split("/")[2];
+    return fetchSongs(type, rapArtist, artistLink, artistId, artistPage, callback);
   } catch (e) {
     console.log("An error occured while trying to parse the artist: [html=" + html + "], error: " + e);
-    return new Error("Unable to parse artist details results from RapGenius");
+    return callback(new Error("Unable to parse artist details results from RapGenius"));
   }
 }
 

@@ -54,12 +54,7 @@ function searchArtist(artist, type, callback) {
     .set("Accept", "text/html")
     .end(function (res) {
       if (res.ok) {
-        var result = RapArtistParser.parseArtistHTML(res.text, type);
-        if (result instanceof Error) {
-          return callback(result);
-        } else {
-          return callback(null, result);
-        }
+        RapArtistParser.parseArtistHTML(res.text, type, callback);
       } else {
         console.log("Received a non expected HTTP status [status=" + res.status + "]");
         return callback(new Error("Unexpected HTTP status: " + res.status));
